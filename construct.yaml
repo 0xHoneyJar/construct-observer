@@ -1,0 +1,53 @@
+schema_version: 3
+name: Observer
+slug: observer
+version: 1.0.0
+description: User truth capture skills for hypothesis-first research
+author: 0xHoneyJar
+license: MIT
+skills:
+  - slug: observing-users
+    path: skills/observing-users
+  - slug: shaping-journeys
+    path: skills/shaping-journeys
+  - slug: level-3-diagnostic
+    path: skills/level-3-diagnostic
+  - slug: analyzing-gaps
+    path: skills/analyzing-gaps
+  - slug: filing-gaps
+    path: skills/filing-gaps
+  - slug: importing-research
+    path: skills/importing-research
+repository:
+  url: https://github.com/0xHoneyJar/construct-observer.git
+  homepage: https://constructs.network/constructs/observer
+events:
+  emits:
+    - type: forge.observer.canvas_created
+      description: Emitted when a new user truth canvas is created
+      data_schema:
+        user_id: string
+        canvas_path: string
+    - type: forge.observer.journey_shaped
+      description: Emitted when a user journey is shaped from canvases
+      data_schema:
+        journey_id: string
+        journey_path: string
+    - type: forge.observer.gap_filed
+      description: Emitted when a gap analysis issue is filed
+      data_schema:
+        gap_id: string
+        issue_url: string
+  consumes:
+    - event: forge.crucible.journey_validated
+pack_dependencies:
+  - slug: crucible
+  - slug: artisan
+identity:
+  persona: identity/persona.yaml
+  expertise: identity/expertise.yaml
+hooks:
+  post_install: scripts/install.sh
+quick_start:
+  command: /observe
+  description: capture user feedback as hypothesis-first research
