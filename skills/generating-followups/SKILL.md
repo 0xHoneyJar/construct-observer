@@ -104,18 +104,10 @@ FOR each canvas_path:
   IF exists(cognition_path):
     cognition = read_yaml(cognition_path)
 
-    # Check staleness using canonical function (same as /think candidate selection)
-    # Recompute identical input_anchors: canvas_last_enriched from frontmatter,
-    # growth_state_hash via sha256(read_file(growth_path)),
-    # score_snapshot_hash via sha256(score_snapshot_raw) with sentinel "unavailable"
+    # Check staleness using canonical function from scripts/staleness.md
+    # (single source of truth — do not redefine inline)
     growth_path = "grimoires/observer/growth/{user}.yaml"
     stale = check_staleness(cognition, canvas_frontmatter, growth_path, score_snapshot_raw)
-
-    # Canonical staleness function (must match /think exactly):
-    # Trigger 1: cycle count (current_cycle_index - distilled_at_cycle_index >= stale_after_cycles)
-    # Trigger 2: canvas_frontmatter.last_enriched > cognition.input_anchors.canvas_last_enriched
-    # Trigger 3: sha256(read_file(growth_path)) != cognition.input_anchors.growth_state_hash
-    # Trigger 4: sha256(score_snapshot_raw) != cognition.input_anchors.score_snapshot_hash (skip if "unavailable")
 
     IF stale:
       cognition_status = "stale"

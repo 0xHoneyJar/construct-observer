@@ -18,39 +18,13 @@ Analyze canvases that need attention, distill structured fears and steering targ
 
 ---
 
-## Canonical Staleness Function
+## Staleness Function
 
-Both `/think` (candidate selection) and `/follow-up` (cognition loading) use this identical logic:
+> **Single source of truth**: `scripts/staleness.md`
+>
+> Both `/think` (candidate selection) and `/follow-up` (cognition loading) use the canonical `check_staleness()` function defined there. Do not redefine inline — reference it.
 
-```
-FUNCTION check_staleness(cognition, canvas_frontmatter, growth_path, score_snapshot_raw):
-  # Trigger 1: Cycle count
-  IF exists(growth_path):
-    growth = read_yaml(growth_path)
-    current_cycle_index = len(growth.follow_ups)
-    IF current_cycle_index - cognition.distilled_at_cycle_index >= cognition.stale_after_cycles:
-      RETURN true
-
-  # Trigger 2: New feedback
-  IF canvas_frontmatter.last_enriched > cognition.input_anchors.canvas_last_enriched:
-    RETURN true
-
-  # Trigger 3: Growth state changed
-  IF exists(growth_path):
-    current_growth_hash = sha256(read_file(growth_path))
-    IF current_growth_hash != cognition.input_anchors.growth_state_hash:
-      RETURN true
-
-  # Trigger 4: Score snapshot changed (skip if unavailable)
-  IF score_snapshot_raw is not null AND score_snapshot_raw != "unavailable":
-    current_score_hash = sha256(score_snapshot_raw)
-    IF current_score_hash != cognition.input_anchors.score_snapshot_hash:
-      RETURN true
-
-  RETURN false
-```
-
-**Score API unavailability**: When score API is down, `score_snapshot_hash` is set to the sentinel `"unavailable"`. Staleness checks skip the score trigger when the current snapshot is also unavailable, preventing churn.
+Four triggers: cycle count, new feedback, growth state hash, score snapshot hash. Score API unavailability uses sentinel `"unavailable"` to skip trigger 4.
 
 ---
 
@@ -77,6 +51,9 @@ if ! scripts/observer/score-api-query.sh profile 0x00000000000000000000000000000
   score_api_available=false
   Log: "Score API unavailable — score-dependent fears will be skipped"
 fi
+
+# Clean up orphaned .tmp files from crashed runs (see scripts/staleness.md)
+find grimoires/observer/cognition/ -name "*.tmp" -mmin +5 -delete 2>/dev/null
 
 # Load config
 cognition_enabled=$(yq '.observer.cognition.enabled // true' .loa.config.yaml)

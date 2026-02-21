@@ -52,6 +52,9 @@ source scripts/observer/golden-path-lib.sh
 source scripts/observer/growth-state.sh
 gp_status_header "grow"
 
+# Clean up orphaned .tmp files from crashed runs (see scripts/staleness.md)
+find grimoires/observer/growth/ -name "*.tmp" -mmin +5 -delete 2>/dev/null
+
 if ! gp_check_growth_dir; then
   gp_status_fail "growth" "no growth files — run /listen first"
   gp_status_blocked "run /listen to create growth state from follow-up responses"

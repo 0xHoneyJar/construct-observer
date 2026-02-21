@@ -75,47 +75,58 @@ if gp_check_growth_dir; then
   # Source: provenance records created by Steps 1-3 (chronicle, daily-synthesis, ingest-dm).
   # Query recent provenance entries to find signals from this session.
 
+  # Clean up orphaned .tmp files from previous crashed runs (see scripts/staleness.md)
+  find grimoires/observer/growth/ -name "*.tmp" -mmin +5 -delete 2>/dev/null
+
+  # BATCH SIGNALS BY USER to avoid per-signal lock contention under burst conditions.
+  # Without batching, a 50-signal burst causes 50 lock acquire/release cycles.
+  # With batching, we acquire each user's lock once and process all their signals.
+  declare -A signals_by_user  # user → array of signals
   FOR each newly_ingested_signal:
     user = signal.user
     growth_path = "grimoires/observer/growth/${user}.yaml"
     IF NOT exists(growth_path): CONTINUE
+    signals_by_user[$user] += signal
 
-    # Run matching (pure function — reads growth state, outputs to stdout)
-    match_result = Run: scripts/observer/growth-match.sh \
-      "$user" "$signal.signal_id" "$signal.raw_text" "$signal.timestamp" "${signal.thread_id:-}"
+  FOR user, signals IN signals_by_user:
+    # Run matching for all signals (pure function — reads growth state, outputs to stdout)
+    all_matches = []
+    FOR signal IN signals:
+      match_result = Run: scripts/observer/growth-match.sh \
+        "$user" "$signal.signal_id" "$signal.raw_text" "$signal.timestamp" "${signal.thread_id:-}"
+      IF match_result is not empty:
+        all_matches += parse_yaml_documents(match_result)
 
-    IF match_result is not empty:
-      # Write proposed match under SINGLE per-user lock (covers all growth artifacts)
-      proposed_path = "grimoires/observer/growth/${user}.proposed_matches.yaml"
-      lock_path = "grimoires/observer/growth/${user}.yaml.lock"
-      WITH flock(lock_path):
-        # Re-read inside lock (avoids TOCTOU)
-        IF NOT exists(proposed_path):
-          proposed_content = {schema_version: 1, user: "$user", matches: []}
-        ELSE:
-          proposed_content = read_yaml(proposed_path)
+    IF all_matches is empty: CONTINUE
 
-        # Parse match result (may be single match or multi-doc for ambiguous)
-        new_matches = parse_yaml_documents(match_result)  # handles "---" separators
+    # Acquire lock ONCE per user, process all matches
+    proposed_path = "grimoires/observer/growth/${user}.proposed_matches.yaml"
+    lock_path = "grimoires/observer/growth/${user}.yaml.lock"
+    WITH flock(lock_path):
+      # Re-read inside lock (avoids TOCTOU)
+      IF NOT exists(proposed_path):
+        proposed_content = {schema_version: 1, user: "$user", matches: []}
+      ELSE:
+        proposed_content = read_yaml(proposed_path)
 
-        FOR match_entry in new_matches:
-          # Idempotency: dedupe by (signal_id, follow_up_id)
-          existing = any(m for m in proposed_content.matches
-                         where m.signal_id == match_entry.signal_id
-                         AND m.follow_up_id == match_entry.follow_up_id)
-          IF existing:
-            dedup_count += 1
-            CONTINUE
+      FOR match_entry in all_matches:
+        # Idempotency: dedupe by (signal_id, follow_up_id)
+        existing = any(m for m in proposed_content.matches
+                       where m.signal_id == match_entry.signal_id
+                       AND m.follow_up_id == match_entry.follow_up_id)
+        IF existing:
+          dedup_count += 1
+          CONTINUE
 
-          match_entry.proposed_at = now_iso8601()
-          match_entry.status = "pending"
-          match_entry.confirmed_at = null
-          proposed_content.matches.append(match_entry)
-          proposed_count += 1
+        match_entry.proposed_at = now_iso8601()
+        match_entry.status = "pending"
+        match_entry.confirmed_at = null
+        proposed_content.matches.append(match_entry)
+        proposed_count += 1
 
-        # Atomic write: temp file + mv
-        write_yaml(proposed_path + ".tmp", proposed_content)
-        mv(proposed_path + ".tmp", proposed_path)
+      # Atomic write: temp file + mv (see scripts/staleness.md for crash recovery)
+      write_yaml(proposed_path + ".tmp", proposed_content)
+      mv(proposed_path + ".tmp", proposed_path)
 
   if [[ "$proposed_count" -gt 0 ]]; then
     msg="${proposed_count} proposed matches (run /grow to confirm)"
