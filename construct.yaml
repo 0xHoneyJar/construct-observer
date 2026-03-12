@@ -7,6 +7,7 @@ domain:
   - analytics
 author: 0xHoneyJar
 license: MIT
+visibility: public
 skills:
   # Core capture pipeline
   - slug: observing-users
